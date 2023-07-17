@@ -1,64 +1,96 @@
 #!/usr/bin/python3
-"""
-Markdown to HTML Converter
-"""
 
+"""
+Markdown script using python.
+"""
 import sys
-import os
+import os.path
 import re
 import hashlib
 
-def convert_markdown_to_html(input_file, output_file):
-    """
-    Convert Markdown content to HTML and write to output file
-    """
-    if not os.path.isfile(input_file):
-        print(f"Missing {input_file}", file=sys.stderr)
-        sys.exit(1)
-
-    # Read the input file
-    with open(input_file, 'r') as file:
-        markdown_content = file.read()
-
-    # Convert Markdown headings to HTML headings
-    html_content = re.sub(r'^#\s(.+)$', r'<h1>\1</h1>', markdown_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^##\s(.+)$', r'<h2>\1</h2>', html_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^###\s(.+)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^####\s(.+)$', r'<h4>\1</h4>', html_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^#####\s(.+)$', r'<h5>\1</h5>', html_content, flags=re.MULTILINE)
-    html_content = re.sub(r'^######\s(.+)$', r'<h6>\1</h6>', html_content, flags=re.MULTILINE)
-
-    # Convert Markdown unordered lists to HTML lists
-    html_content = re.sub(r'^-\s(.+)$', r'<ul>\n<li>\1</li>\n</ul>', html_content, flags=re.MULTILINE)
-
-    # Convert Markdown ordered lists to HTML lists
-    html_content = re.sub(r'^\*\s(.+)$', r'<ol>\n<li>\1</li>\n</ol>', html_content, flags=re.MULTILINE)
-
-    # Convert Markdown paragraphs to HTML paragraphs
-    html_content = re.sub(r'^([^\-*#].*)$', r'<p>\n\1\n</p>', html_content, flags=re.MULTILINE)
-
-    # Convert Markdown bold syntax to HTML bold tags
-    html_content = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', html_content)
-    html_content = re.sub(r'__(.*?)__', r'<em>\1</em>', html_content)
-
-    # Convert custom syntax: [[content]] to MD5 hash (lowercase)
-    html_content = re.sub(r'\[\[(.*?)\]\]', lambda match: hashlib.md5(match.group(1).encode()).hexdigest(), html_content)
-
-    # Convert custom syntax: ((content)) to remove all occurrences of 'c' (case insensitive)
-    html_content = re.sub(r'\(\((.*?)\)\)', lambda match: match.group(1).replace('c', ''), html_content, flags=re.IGNORECASE)
-
-    # Write the HTML content to the output file
-    with open(output_file, 'w') as file:
-        file.write(html_content)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print("Usage: ./markdown2html.py <input_file> <output_file>", file=sys.stderr)
-        sys.exit(1)
+        print('Usage: ./markdown2html.py README.md README.html',
+              file=sys.stderr)
+        exit(1)
 
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
+    if not os.path.isfile(sys.argv[1]):
+        print('Missing {}'.format(sys.argv[1]), file=sys.stderr)
+        exit(1)
 
-    convert_markdown_to_html(input_file, output_file)
+    with open(sys.argv[1]) as read:
+        with open(sys.argv[2], 'w') as html:
+            unordered_start, ordered_start, paragraph = False, False, False
+            # bold syntax
+            for line in read:
+                line = line.replace('**', '<b>', 1)
+                line = line.replace('**', '</b>', 1)
+                line = line.replace('__', '<em>', 1)
+                line = line.replace('__', '</em>', 1)
 
-    sys.exit(0)
+                # md5
+                md5 = re.findall(r'\[\[.+?\]\]', line)
+                md5_inside = re.findall(r'\[\[(.+?)\]\]', line)
+                if md5:
+                    line = line.replace(md5[0], hashlib.md5(
+                        md5_inside[0].encode()).hexdigest())
+
+                # remove the letter C
+                remove_letter_c = re.findall(r'\(\(.+?\)\)', line)
+                remove_c_more = re.findall(r'\(\((.+?)\)\)', line)
+                if remove_letter_c:
+                    remove_c_more = ''.join(
+                        c for c in remove_c_more[0] if c not in 'Cc')
+                    line = line.replace(remove_letter_c[0], remove_c_more)
+
+                length = len(line)
+                headings = line.lstrip('#')
+                heading_num = length - len(headings)
+                unordered = line.lstrip('-')
+                unordered_num = length - len(unordered)
+                ordered = line.lstrip('*')
+                ordered_num = length - len(ordered)
+                # headings, lists
+                if 1 <= heading_num <= 6:
+                    line = '<h{}>'.format(
+                        heading_num) + headings.strip() + '</h{}>\n'.format(
+                        heading_num)
+
+                if unordered_num:
+                    if not unordered_start:
+                        html.write('<ul>\n')
+                        unordered_start = True
+                    line = '<li>' + unordered.strip() + '</li>\n'
+                if unordered_start and not unordered_num:
+                    html.write('</ul>\n')
+                    unordered_start = False
+
+                if ordered_num:
+                    if not ordered_start:
+                        html.write('<ol>\n')
+                        ordered_start = True
+                    line = '<li>' + ordered.strip() + '</li>\n'
+                if ordered_start and not ordered_num:
+                    html.write('</ol>\n')
+                    ordered_start = False
+
+                if not (heading_num or unordered_start or ordered_start):
+                    if not paragraph and length > 1:
+                        html.write('<p>\n')
+                        paragraph = True
+                    elif length > 1:
+                        html.write('<br/>\n')
+                    elif paragraph:
+                        html.write('</p>\n')
+                        paragraph = False
+
+                if length > 1:
+                    html.write(line)
+
+            if unordered_start:
+                html.write('</ul>\n')
+            if ordered_start:
+                html.write('</ol>\n')
+            if paragraph:
+                html.write('</p>\n')
+    exit (0)
